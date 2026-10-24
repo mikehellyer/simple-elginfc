@@ -24,6 +24,12 @@ def self_test() -> int:
     except Exception:
         checks["head to head"] = False
     try:
+        from simple_elginfc.core.players import load_bundled_rosters
+
+        checks["player rosters"] = len(load_bundled_rosters()) > 100
+    except Exception:
+        checks["player rosters"] = False
+    try:
         from simple_elginfc.core.sources import bbc
 
         checks["news parsing"] = bbc.parse_news(b"<rss><channel><item><title>Hi</title></item></channel></rss>")[0].title == "Hi"

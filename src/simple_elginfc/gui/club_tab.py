@@ -11,12 +11,17 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout,
                                QWidget)
 
+from simple_elginfc.core import players as players_
 from simple_elginfc.core.live import ClubDetails, Fixtures, LeagueTable
 from simple_elginfc.core.models import Match, season_of
 from simple_elginfc.core.sources.bbc import DONE, LIVE, PRE
 from simple_elginfc.core.stats import club_records, counts, record
 from simple_elginfc.gui.match_table import describe, nice_date
+from simple_elginfc.gui.player_card import PhotoLoader, PlayerCard
 from simple_elginfc.gui.style import BLACK, MUTED, result_chip, title
+
+
+SHORT_POSITIONS = {"Goalkeeper": "GK", "Defender": "DF", "Midfielder": "MF", "Forward": "FW"}
 
 
 def card(heading: str) -> tuple[QFrame, QVBoxLayout]:
@@ -119,6 +124,8 @@ class ClubTab(QScrollArea):
 
         self._squad, squad_l = card("First-team squad")
         self._squad_body = rich()
+        self._squad_body.setOpenExternalLinks(False)
+        self._squad_body.linkActivated.connect(self._open_player)
         squad_l.addWidget(self._squad_body)
         self._honours, honours_l = card("Honours")
         self._honours_body = rich()
@@ -148,7 +155,14 @@ class ClubTab(QScrollArea):
         self._sources.setObjectName("muted")
         outer.addWidget(self._sources)
         outer.addStretch()
+        self._players: list[players_.Player] = []
+        self._history: list[Match] = []
+        self._photos: Optional[PhotoLoader] = None
+        self._crest_pix: Optional[QPixmap] = None
         self.show_club(None)
+
+    def set_photo_loader(self, loader: PhotoLoader) -> None:
+        self._photos = loader
 
     # --- filling in
 
@@ -168,6 +182,7 @@ class ClubTab(QScrollArea):
         if details.crest_png:
             pix = QPixmap()
             if pix.loadFromData(details.crest_png):
+                self._crest_pix = pix
                 self._crest.setPixmap(pix.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self._ground_body.setText(rows_html([(k, v) for k, v in (
             ("Ground", info.ground), ("Capacity", info.capacity), ("Opened", info.ground_opened),
@@ -182,13 +197,10 @@ class ClubTab(QScrollArea):
         self._board_body.setText(rows_html(board) + f"<p style='color:{MUTED}; font-size:9pt'>Directors and secretary "
                                  "from the Companies House register.</p>")
         self._staff_body.setText(rows_html(details.staff))
-        squad = "".join(
-            f"<tr><td style='color:{MUTED}; padding:1px 10px 1px 0; text-align:right'>{html.escape(p['no'])}</td>"
-            f"<td style='padding:1px 10px 1px 0; color:{MUTED}'>{html.escape(p['pos'])}</td>"
-            f"<td style='padding:1px 0'>{html.escape(p['name'])}"
-            f"{' <span style=color:' + MUTED + '>— ' + html.escape(p['other']) + '</span>' if p['other'] else ''}</td></tr>"
-            for p in details.squad)
-        self._squad_body.setText(f"<table cellspacing=0>{squad}</table>" if squad else "Not known yet")
+        if not self._players:
+            # until the players' own details arrive, cards from the squad list alone
+            self._players = players_.build_squad(details.squad, [], {}, players_.load_bundled_rosters())
+            self._show_squad()
         self._honours_body.setText("".join(
             f"<p style='margin:0 0 6px 0'><b>{html.escape(c)}</b><br>{html.escape(v)}</p>" for c, v in details.honours))
         self._records_body.setText(rows_html(details.records))
@@ -198,7 +210,33 @@ class ClubTab(QScrollArea):
             f"<span style='color:{MUTED}; font-size:9pt'>Club details from Wikipedia and Companies House"
             f"{', checked ' + nice_date(updated) if updated else ''}. Badge © Elgin City FC.</span>")
 
+    def show_players(self, squad: list[players_.Player]) -> None:
+        if squad:
+            self._players = squad
+            self._show_squad()
+
+    def _show_squad(self) -> None:
+        rows = []
+        for i, p in enumerate(self._players):
+            note = p.note if p.note else ""
+            rows.append(
+                f"<tr><td style='color:{MUTED}; padding:2px 10px 2px 0; text-align:right'>{html.escape(p.number)}</td>"
+                f"<td style='padding:2px 10px 2px 0; color:{MUTED}'>{SHORT_POSITIONS.get(p.position, '')}</td>"
+                f"<td style='padding:2px 0'><a href='player:{i}' style='color:{BLACK}; text-decoration:none'>"
+                f"<b>{html.escape(p.name)}</b></a>"
+                f"{' <span style=color:' + MUTED + '>— ' + html.escape(note) + '</span>' if note else ''}</td></tr>")
+        hint = f"<p style='color:{MUTED}; font-size:9pt; margin-top:6px'>Click a player for his card.</p>"
+        self._squad_body.setText(f"<table cellspacing=0>{''.join(rows)}</table>{hint}" if rows else "Not known yet")
+
+    def _open_player(self, link: str) -> None:
+        if not link.startswith("player:") or self._photos is None:
+            return
+        index = int(link.split(":", 1)[1])
+        if 0 <= index < len(self._players):
+            PlayerCard(self._players, index, self._history, self._photos, self._crest_pix, self).exec()
+
     def show_live(self, fixtures: Fixtures, table: LeagueTable, history: list[Match]) -> None:
+        self._history = history
         events = fixtures.as_events()
         done = [e for e in events if e.state == DONE and e.match.played]
         live = [e for e in events if e.state == LIVE]

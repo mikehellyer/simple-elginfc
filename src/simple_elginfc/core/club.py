@@ -240,7 +240,11 @@ def parse_squad(text: str) -> list[dict]:
         line = line.strip()
         if line.lower().startswith("{{fs player"):
             box = parse_infobox("{{infobox" + line[len("{{fs player"):])
-            players.append({k: _strip_markup(box.get(k, "")) for k in ("no", "nat", "pos", "name", "other")})
+            player = {k: _strip_markup(box.get(k, "")) for k in ("no", "nat", "pos", "name", "other")}
+            # the player's own Wikipedia article, where the name links to one
+            link = re.match(r"\s*\[\[([^|\]]+)", box.get("name", ""))
+            player["article"] = link.group(1).strip() if link else ""
+            players.append(player)
     return [p for p in players if p["name"]]
 
 

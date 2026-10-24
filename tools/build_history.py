@@ -25,10 +25,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from simple_elginfc.core import history  # noqa: E402
 from simple_elginfc.core.models import Match  # noqa: E402
+from simple_elginfc.core import players  # noqa: E402
 from simple_elginfc.core.sources import bbc, espn, fchd, sfha  # noqa: E402
 
 CACHE = ROOT / "tools" / ".cache"
 OUT = ROOT / "src" / "simple_elginfc" / "data" / "history.json.gz"
+ROSTERS = ROOT / "src" / "simple_elginfc" / "data" / "rosters.json.gz"
 REFRESH = "--refresh" in sys.argv
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) SimpleElginFC-history-builder"
 
@@ -137,6 +139,19 @@ def from_bbc() -> list[Match]:
     return found
 
 
+def build_rosters() -> None:
+    """Every Elgin squad ESPN has, 2001-02 on: the first season each
+    player was in one (when he joined), and dates of birth and heights."""
+    seasons = []
+    for year in range(2001, date.today().year + 1):
+        text = fetch(players.ESPN_ROSTER_URL.format(season=year), f"espn/roster-{year}.json")
+        if text:
+            seasons.append(players.parse_roster(json.loads(text)))
+    merged = players.merge_rosters(seasons)
+    ROSTERS.write_bytes(players.rosters_to_bytes(merged))
+    print(f"wrote {ROSTERS.relative_to(ROOT)} ({len(merged)} players from {len(seasons)} seasons)")
+
+
 def main() -> None:
     print("Reading sources…")
     groups = [from_sfha(), from_fchd(), from_espn(), from_bbc()]
@@ -148,6 +163,7 @@ def main() -> None:
     payload = {"built": date.today().isoformat(), "matches": [m.to_dict() for m in merged]}
     OUT.write_bytes(gzip.compress(json.dumps(payload, separators=(",", ":")).encode(), mtime=0))
     print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)")
+    build_rosters()
 
 
 if __name__ == "__main__":

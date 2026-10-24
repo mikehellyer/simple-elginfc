@@ -42,6 +42,7 @@ a = Analysis(
     datas=[
         (str(src / "simple_elginfc" / "gui" / "resources" / "icon.png"), "simple_elginfc/gui/resources"),
         (str(src / "simple_elginfc" / "data" / "history.json.gz"), "simple_elginfc/data"),
+        (str(src / "simple_elginfc" / "data" / "rosters.json.gz"), "simple_elginfc/data"),
     ],
     hiddenimports=[],
     hookspath=[],

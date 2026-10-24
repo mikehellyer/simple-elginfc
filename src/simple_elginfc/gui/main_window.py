@@ -24,6 +24,7 @@ from simple_elginfc.gui.club_tab import ClubTab
 from simple_elginfc.gui.h2h_tab import HeadToHeadTab, save_csv
 from simple_elginfc.gui.latest_tab import LatestTab
 from simple_elginfc.gui.matches_tab import MatchesTab
+from simple_elginfc.gui.player_card import PhotoLoader
 from simple_elginfc.gui.update_banner import UpdateBanner
 from simple_elginfc.gui.workers import BackgroundRunner
 
@@ -34,7 +35,8 @@ ICON_PATH = Path(__file__).parent / "resources" / "icon.png"
 SERVICE_MS = 30_000  # how often to see what wants fetching
 
 # how often each kind of data is fetched, in seconds
-EVERY = {"fixtures": 10 * 60, "fixtures_live": 60, "table": 60 * 60, "news": 20 * 60, "club": 12 * 60 * 60}
+EVERY = {"fixtures": 10 * 60, "fixtures_live": 60, "table": 60 * 60, "news": 20 * 60, "club": 12 * 60 * 60,
+         "players": 12 * 60 * 60}
 
 CLUB_TAB, MATCHES_TAB, H2H_TAB, LATEST_TAB = range(4)
 
@@ -58,6 +60,7 @@ class MainWindow(QMainWindow):
         self._table = self._cache.load_table()
         self._news = self._cache.load_news()
         self._club = self._cache.load_club()
+        self._players = self._cache.load_players()
         self._finished_ids: set[str] = {e.match.date + e.match.opponent for e in self._fixtures.as_events() if e.state == DONE}
 
         central = QWidget()
@@ -85,6 +88,8 @@ class MainWindow(QMainWindow):
         self._build_menus()
 
         self._show_history()
+        self._club_tab.set_photo_loader(PhotoLoader(self._runner, self._cache, self))
+        self._club_tab.show_players(self._players)
         self._club_tab.show_club(self._club)
         self._show_live()
         self._h2h_tab.set_related(self._store.settings.h2h_related)
@@ -165,6 +170,8 @@ class MainWindow(QMainWindow):
     def _start_fetching(self) -> None:
         for kind in ("fixtures", "table", "news", "club"):
             self._fetch(kind)
+        if self._club:
+            self._fetch("players")
         self._fetch_season()
 
     def _refresh_now(self) -> None:
@@ -191,6 +198,8 @@ class MainWindow(QMainWindow):
         now = time.time()
         fixtures_every = EVERY["fixtures_live"] if self._match_on() else EVERY["fixtures"]
         due = {"fixtures": fixtures_every, "table": EVERY["table"], "news": EVERY["news"], "club": EVERY["club"]}
+        if self._club:  # (the players come from the club's squad list)
+            due["players"] = EVERY["players"]
         for kind, every in due.items():
             if now - self._last_fetch.get(kind, 0) >= every:
                 self._fetch(kind)
@@ -200,8 +209,9 @@ class MainWindow(QMainWindow):
             return
         self._busy.add(kind)
         self._last_fetch[kind] = time.time()
+        squad = self._club.squad if self._club else []
         job = {"fixtures": live.fetch_fixtures, "table": live.fetch_table, "news": live.fetch_news,
-               "club": live.fetch_club}[kind]
+               "club": live.fetch_club, "players": lambda: live.fetch_players(squad)}[kind]
         self._runner.run(job, lambda result, kind=kind: self._fetched(kind, result),
                          lambda error, kind=kind: self._fetch_failed(kind, error))
 
@@ -231,6 +241,12 @@ class MainWindow(QMainWindow):
             self._club = result
             self._cache.save_club(result)
             self._club_tab.show_club(result)
+            if not self._players:
+                self._fetch("players")
+        elif kind == "players":
+            self._players = result
+            self._cache.save_players(result)
+            self._club_tab.show_players(result)
         self._show_live()
 
     def _fetch_season(self) -> None:
@@ -270,7 +286,9 @@ class MainWindow(QMainWindow):
             "<b>The club</b><br>"
             "Club details, honours, records, squad and staff: Wikipedia. "
             "The board: the Companies House register (Elgin City Football Club Limited, SC207126). "
-            "Badge © Elgin City FC.<br><br>"
+            "Badge © Elgin City FC.<br>"
+            "Players: photos and positions from the club's own site (photos by Bob Crombie), "
+            "details from Wikipedia, and ages and squads by season from ESPN.<br><br>"
             "<b>Known gaps</b><br>"
             "Elgin's first Scottish League season (2000–01), Scottish Cup ties before 1946, and the dates of "
             "Scottish Cup ties before 2001 aren't in the history yet.<br><br>"

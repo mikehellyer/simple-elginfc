@@ -18,7 +18,7 @@ from typing import Callable, Optional
 from platformdirs import user_cache_dir
 
 from simple_elginfc import __version__
-from simple_elginfc.core import club
+from simple_elginfc.core import club, players
 from simple_elginfc.core.http import SSL_CONTEXT
 from simple_elginfc.core.models import Match
 from simple_elginfc.core.sources import bbc
@@ -27,10 +27,14 @@ USER_AGENT = f"Simple-ElginFC/{__version__} (+https://github.com/mikehellyer/sim
 TIMEOUT = 20
 
 
-def get_bytes(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def get_bytes(url: str, headers: Optional[dict] = None) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     with urllib.request.urlopen(request, timeout=TIMEOUT, context=SSL_CONTEXT) as response:
         return response.read()
+
+
+def get_text(url: str, headers: Optional[dict] = None) -> str:
+    return get_bytes(url, headers).decode("utf-8", errors="replace")
 
 
 def get_json(url: str):
@@ -171,6 +175,20 @@ def fetch_club(get: Callable = get_json, get_raw: Callable = get_bytes) -> ClubD
     )
 
 
+def fetch_players(squad: list[dict]) -> list[players.Player]:
+    found = players.fetch_squad(squad, get_text, get_json)
+    if not found:
+        raise ValueError("no players")
+    return found
+
+
+def photo_name(url: str) -> str:
+    """The file a player's photo is cached as."""
+    import hashlib
+
+    return "photos/" + hashlib.sha1(url.encode()).hexdigest()[:16] + ".jpg"
+
+
 class Cache:
     """The last good copy of each kind of live data."""
 
@@ -239,6 +257,22 @@ class Cache:
         self.save("club.json", c.to_json())
         if c.crest_png:
             self.save_bytes("crest.png", c.crest_png)
+
+    def save_players(self, squad: list[players.Player]) -> None:
+        self.save("players.json", json.dumps([asdict(p) for p in squad]))
+
+    def load_players(self) -> list[players.Player]:
+        try:
+            return [players.Player(**p) for p in json.loads(self.load("players.json") or "[]")]
+        except (ValueError, TypeError):
+            return []
+
+    def photo(self, url: str) -> bytes:
+        return self.load_bytes(photo_name(url))
+
+    def save_photo(self, url: str, data: bytes) -> None:
+        (self.folder / "photos").mkdir(parents=True, exist_ok=True)
+        self.save_bytes(photo_name(url), data)
 
     def load_club(self) -> Optional[ClubDetails]:
         text = self.load("club.json")
