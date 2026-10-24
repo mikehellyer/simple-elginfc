@@ -39,6 +39,23 @@ QTableView, QListWidget, QTreeWidget {{ background: {PAPER}; border: 1px solid {
 QHeaderView::section {{ background: {PAPER}; border: none; border-bottom: 1px solid {LINE};
     padding: 6px; font-weight: 700; color: {MUTED}; }}
 QStatusBar {{ background: {PAPER}; color: {MUTED}; }}
+/* Selections and pop-ups get their own colours: the text colour above
+   otherwise wins over the "selected" one, which on a dark desktop theme
+   left dark text on a black bar. */
+QMenuBar {{ background: {PAPER}; border-bottom: 1px solid {LINE}; }}
+QMenuBar::item {{ background: transparent; color: {INK}; padding: 4px 10px; }}
+QMenuBar::item:selected, QMenuBar::item:pressed {{ background: {BLACK}; color: white; border-radius: 4px; }}
+QMenu {{ background: {PAPER}; color: {INK}; border: 1px solid {LINE}; padding: 4px; }}
+QMenu::item {{ padding: 5px 28px 5px 12px; border-radius: 4px; }}
+QMenu::item:selected {{ background: {BLACK}; color: white; }}
+QMenu::item:disabled {{ color: {MUTED}; }}
+QMenu::separator {{ height: 1px; background: {LINE}; margin: 4px 8px; }}
+QListWidget::item:hover, QTableView::item:hover {{ background: {SHADE}; color: {INK}; }}
+QListWidget::item:selected, QTableView::item:selected {{ background: {BLACK}; color: white; }}
+QComboBox QAbstractItemView, QCompleter QAbstractItemView, QListView {{ background: {PAPER}; color: {INK};
+    selection-background-color: {BLACK}; selection-color: white; border: 1px solid {LINE}; }}
+QToolTip {{ background: {PAPER}; color: {INK}; border: 1px solid {LINE}; padding: 4px; }}
+QCheckBox, QRadioButton {{ background: transparent; }}
 """
 
 

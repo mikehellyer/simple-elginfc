@@ -14,7 +14,7 @@ from simple_elginfc.core.live import Fixtures, LeagueTable, News
 from simple_elginfc.core.sources.bbc import DONE, LIVE, PRE
 from simple_elginfc.gui.club_tab import card, rich
 from simple_elginfc.gui.match_table import nice_date
-from simple_elginfc.gui.style import BLACK, MUTED, RESULT_COLOURS, result_chip
+from simple_elginfc.gui.style import BLACK, INK, MUTED, RESULT_COLOURS, SHADE, result_chip
 
 
 def _kickoff(iso: str) -> str:
@@ -63,7 +63,11 @@ class LatestTab(QWidget):
         self._news = QListWidget()
         self._news.setWordWrap(True)
         self._news.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._news.setStyleSheet("QListWidget { border: none; } QListWidget::item { padding: 8px 2px; border-bottom: 1px solid #ececf0; }")
+        self._news.setStyleSheet(
+            "QListWidget { border: none; }"
+            "QListWidget::item { padding: 8px 4px; border-bottom: 1px solid #ececf0; }"
+            f"QListWidget::item:hover {{ background: {SHADE}; color: {INK}; }}"
+            f"QListWidget::item:selected {{ background: {BLACK}; color: white; }}")
         self._news.itemActivated.connect(self._open)
         self._news.itemClicked.connect(self._open)
         nl.addWidget(self._news, stretch=1)
