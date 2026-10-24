@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Simple-ElginFC
+Comment=Elgin City FC: the club, every game, and head-to-heads
+Exec=/opt/simple-elginfc/Simple-ElginFC
+Icon=simple-elginfc
+Terminal=false
+Categories=Utility;Sports;

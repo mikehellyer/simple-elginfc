@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simple-elginfc"
+dynamic = ["version"]
+description = "Everything about Elgin City FC: the club, every game, and head-to-heads"
+authors = [{ name = "Mike Hellyer" }]
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6",
+    "platformdirs",
+    "certifi",
+]
+
+[project.scripts]
+simple-elginfc = "simple_elginfc.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "simple_elginfc.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"simple_elginfc.gui" = ["resources/*.png"]
+"simple_elginfc" = ["data/*.json.gz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
