@@ -54,8 +54,8 @@ class LatestTab(QWidget):
         self._table_card, tl = card("League table")
         self._table = rich()
         tl.addWidget(self._table)
-        ll.addWidget(self._games_card)
         ll.addWidget(self._table_card)
+        ll.addWidget(self._games_card)
         ll.addStretch()
         layout.addWidget(left, stretch=3)
 
@@ -78,7 +78,7 @@ class LatestTab(QWidget):
             self._games.setText(f"<span style='color:{MUTED}'>Nothing yet — checking BBC Sport…</span>")
             return
         rows = []
-        for e in events:
+        for e in reversed(events):  # newest first
             m = e.match
             if e.state == LIVE:
                 status = f"<b style='color:#c62828'>{html.escape(e.status or 'LIVE')}</b>"
