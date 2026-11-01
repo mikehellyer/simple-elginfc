@@ -20,6 +20,8 @@ class Settings:
     # Count the clubs an opponent became or merged into as the same opponent
     # (Inverness Caledonian and Thistle with Caledonian Thistle, and so on).
     h2h_related: bool = False
+    # The league showing on the Live Scores tab.
+    live_league: str = "premiership"
 
 
 _RANGES = {"tab": (0, 10)}

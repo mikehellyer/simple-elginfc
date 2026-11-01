@@ -13,6 +13,10 @@ Simple-* range.
   crowds, and every game. Saves as a spreadsheet (CSV).
 - **Latest**: results and fixtures around now (live during a game), the
   League Two table, and the news.
+- **Live Scores**: a page for each league (Premiership, Championship,
+  League One, League Two, Highland League, Lowland League East and West):
+  today's games, live, on the left and the table on the right; on days
+  with no games, the last results and the next fixtures.
 
 It keeps itself up to date: results and fixtures every 10 minutes (every
 minute while a game is on), the table hourly, news every 20 minutes and
@@ -27,6 +31,7 @@ with what it last knew.
 | Scottish Cup ties, 1946–2016 (no dates) | [Football Club History Database](https://fchd.info/) |
 | Scottish League and cup games, 2001–2019, with crowds | ESPN's site API |
 | Results, fixtures, scorers, table and news since 2020 | BBC Sport |
+| Live scores and tables for every Scottish league | BBC Sport |
 | Club details, honours, records, squad, staff | Wikipedia |
 | The board | Companies House (Elgin City Football Club Limited, SC207126) |
 

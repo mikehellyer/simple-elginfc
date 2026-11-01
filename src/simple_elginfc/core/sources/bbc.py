@@ -240,3 +240,84 @@ def parse_news(data: bytes) -> list[NewsItem]:
             image=thumb.get("url", "") if thumb is not None else "",
         ))
     return items
+
+
+# --- any league's games (the Live Scores tab)
+
+def tournament_scores_url(slug: str, start: date, end: date, today: date) -> str:
+    query = urllib.parse.urlencode({"selectedEndDate": end.isoformat(), "selectedStartDate": start.isoformat(),
+                                    "todayDate": today.isoformat(),
+                                    "urn": f"urn:bbc:sportsdata:football:tournament:{slug}"})
+    return f"{BASE}/sport-data-scores-fixtures?{query}"
+
+
+@dataclass
+class Game:
+    home: str
+    away: str
+    home_score: Optional[int]
+    away_score: Optional[int]
+    state: str  # PRE, LIVE or DONE
+    status: str  # "FT", "HT", "67'", "Postponed"…
+    kickoff: str  # ISO date-time, UTC
+    date: str  # ISO date
+    home_scorers: list[str]
+    away_scorers: list[str]
+    home_reds: int = 0
+    away_reds: int = 0
+    half_time: str = ""  # "1-0", home first
+    note: str = ""  # "aet", "4-3 on penalties"
+
+
+def _reds(side: dict) -> int:
+    return sum(len(a.get("actions") or [1]) for a in side.get("actions") or []
+               if "red" in (a.get("actionType") or "").lower())
+
+
+def parse_games(payload: dict) -> list[Game]:
+    games = []
+    for group in payload.get("eventGroups") or []:
+        for sub in group.get("secondaryGroups") or []:
+            for e in sub.get("events") or []:
+                home, away = e.get("home") or {}, e.get("away") or {}
+                if not home or not away:
+                    continue
+                raw = e.get("status") or ""
+                state = _STATES.get(raw, PRE)
+                label = ((e.get("periodLabel") or {}).get("value") or "").strip()
+                comment = ((e.get("statusComment") or {}).get("value") or "").strip()
+                if raw not in _STATES and label:  # postponed, abandoned…
+                    state = DONE if "abandon" in label.lower() else PRE
+                # during a game the period label is the minute ("67'") or "HT"
+                status = label or comment or ("LIVE" if state == LIVE else "")
+                notes = []
+                if comment.upper() in ("AET", "AFTER EXTRA TIME"):
+                    notes.append("aet")
+                pens = (_int((home.get("runningScores") or {}).get("penaltyShootout")),
+                        _int((away.get("runningScores") or {}).get("penaltyShootout")))
+                if None not in pens:
+                    notes.append(f"{pens[0]}-{pens[1]} on penalties")
+                ht = (_int((home.get("runningScores") or {}).get("halftime")),
+                      _int((away.get("runningScores") or {}).get("halftime")))
+                scored = state in (LIVE, DONE)
+                games.append(Game(
+                    home=home.get("fullName") or home.get("shortName") or "?",
+                    away=away.get("fullName") or away.get("shortName") or "?",
+                    home_score=_int(home.get("score")) if scored else None,
+                    away_score=_int(away.get("score")) if scored else None,
+                    state=state, status=status, kickoff=e.get("startDateTime") or "",
+                    date=((e.get("date") or {}).get("isoDate") or (e.get("startDateTime") or "")[:10]),
+                    home_scorers=_scorers(home), away_scorers=_scorers(away),
+                    home_reds=_reds(home), away_reds=_reds(away),
+                    half_time=f"{ht[0]}-{ht[1]}" if None not in ht and state != PRE else "",
+                    note="; ".join(notes)))
+    games.sort(key=lambda g: (g.kickoff or g.date, g.home))
+    return games
+
+
+def parse_playing(payload: dict) -> set[str]:
+    """The table's teams in a game right now, where the feed marks them."""
+    urns = set()
+    for t in payload.get("tournaments") or []:
+        urns |= set(t.get("matchParticipantUrns") or [])
+    return urns

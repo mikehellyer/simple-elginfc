@@ -12,7 +12,7 @@ from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 
 from simple_elginfc import __version__
-from simple_elginfc.core import live
+from simple_elginfc.core import live, scoreboard
 from simple_elginfc.core.diagnostics import log_event
 from simple_elginfc.core.history import History
 from simple_elginfc.core.models import season_start_year, season_of
@@ -23,6 +23,7 @@ from simple_elginfc.core.updater import API_TIMEOUT_SECONDS, check_for_update
 from simple_elginfc.gui.club_tab import ClubTab
 from simple_elginfc.gui.h2h_tab import HeadToHeadTab, save_csv
 from simple_elginfc.gui.latest_tab import LatestTab
+from simple_elginfc.gui.live_scores_tab import LiveScoresTab
 from simple_elginfc.gui.matches_tab import MatchesTab
 from simple_elginfc.gui.player_card import PhotoLoader
 from simple_elginfc.gui.update_banner import UpdateBanner
@@ -38,7 +39,10 @@ SERVICE_MS = 30_000  # how often to see what wants fetching
 EVERY = {"fixtures": 10 * 60, "fixtures_live": 60, "table": 60 * 60, "news": 20 * 60, "club": 12 * 60 * 60,
          "players": 12 * 60 * 60}
 
-CLUB_TAB, MATCHES_TAB, H2H_TAB, LATEST_TAB = range(4)
+CLUB_TAB, MATCHES_TAB, H2H_TAB, LATEST_TAB, SCORES_TAB = range(5)
+# the Live Scores tab: every minute while it's open and games are on;
+# less often when there's nothing on, or when it isn't being looked at
+SCORES_EVERY = {"watching_live": 60, "watching": 5 * 60, "live": 10 * 60, "quiet": 30 * 60}
 
 
 class MainWindow(QMainWindow):
@@ -76,10 +80,16 @@ class MainWindow(QMainWindow):
         self._matches_tab = MatchesTab()
         self._h2h_tab = HeadToHeadTab()
         self._latest_tab = LatestTab()
+        self._scores_tab = LiveScoresTab()
+        self._boards: dict[str, scoreboard.LeagueBoard] = {}
         self._tabs.addTab(self._club_tab, "Club")
         self._tabs.addTab(self._matches_tab, "Matches")
         self._tabs.addTab(self._h2h_tab, "Head to Head")
         self._tabs.addTab(self._latest_tab, "Latest")
+        self._tabs.addTab(self._scores_tab, "Live Scores")
+        # opening the tab gets the latest scores at once if they're more than a minute old
+        self._tabs.currentChanged.connect(lambda i: i == SCORES_TAB and self._scores_due(SCORES_EVERY["watching_live"])
+                                          and self._fetch("scores"))
         layout.addWidget(self._tabs)
         self.setCentralWidget(central)
 
@@ -93,6 +103,7 @@ class MainWindow(QMainWindow):
         self._club_tab.show_club(self._club)
         self._show_live()
         self._h2h_tab.set_related(self._store.settings.h2h_related)
+        self._scores_tab.select(self._store.settings.live_league)
         if self._store.settings.h2h_opponent:
             self._h2h_tab.select(self._store.settings.h2h_opponent)
         self._tabs.setCurrentIndex(self._store.settings.tab)
@@ -119,7 +130,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_)
 
         view = self.menuBar().addMenu("&View")
-        for i, name in enumerate(("Club", "Matches", "Head to Head", "Latest")):
+        for i, name in enumerate(("Club", "Matches", "Head to Head", "Latest", "Live Scores")):
             action = QAction(name, self)
             action.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))
             action.triggered.connect(lambda _=False, i=i: self._tabs.setCurrentIndex(i))
@@ -168,7 +179,7 @@ class MainWindow(QMainWindow):
     # --- fetching
 
     def _start_fetching(self) -> None:
-        for kind in ("fixtures", "table", "news", "club"):
+        for kind in ("fixtures", "table", "news", "club", "scores"):
             self._fetch(kind)
         if self._club:
             self._fetch("players")
@@ -200,9 +211,20 @@ class MainWindow(QMainWindow):
         due = {"fixtures": fixtures_every, "table": EVERY["table"], "news": EVERY["news"], "club": EVERY["club"]}
         if self._club:  # (the players come from the club's squad list)
             due["players"] = EVERY["players"]
+        due["scores"] = self._scores_interval()
         for kind, every in due.items():
             if now - self._last_fetch.get(kind, 0) >= every:
                 self._fetch(kind)
+
+    def _scores_interval(self) -> int:
+        watching = self._tabs.currentIndex() == SCORES_TAB and self.isVisible()
+        on = scoreboard.kickoff_soon(self._boards, datetime.now(timezone.utc))
+        if watching:
+            return SCORES_EVERY["watching_live"] if on else SCORES_EVERY["watching"]
+        return SCORES_EVERY["live"] if on else SCORES_EVERY["quiet"]
+
+    def _scores_due(self, every: int) -> bool:
+        return time.time() - self._last_fetch.get("scores", 0) >= every
 
     def _fetch(self, kind: str) -> None:
         if kind in self._busy:
@@ -211,7 +233,8 @@ class MainWindow(QMainWindow):
         self._last_fetch[kind] = time.time()
         squad = self._club.squad if self._club else []
         job = {"fixtures": live.fetch_fixtures, "table": live.fetch_table, "news": live.fetch_news,
-               "club": live.fetch_club, "players": lambda: live.fetch_players(squad)}[kind]
+               "club": live.fetch_club, "players": lambda: live.fetch_players(squad),
+               "scores": lambda boards=dict(self._boards): scoreboard.fetch_all(boards)}[kind]
         self._runner.run(job, lambda result, kind=kind: self._fetched(kind, result),
                          lambda error, kind=kind: self._fetch_failed(kind, error))
 
@@ -243,6 +266,10 @@ class MainWindow(QMainWindow):
             self._club_tab.show_club(result)
             if not self._players:
                 self._fetch("players")
+        elif kind == "scores":
+            self._boards = result
+            self._scores_tab.show_boards(result)
+            return
         elif kind == "players":
             self._players = result
             self._cache.save_players(result)
@@ -282,7 +309,8 @@ class MainWindow(QMainWindow):
             "Scottish Cup ties 1946–2016: the <a href='https://fchd.info/'>Football Club History Database</a> "
             "(Richard Rundle).<br>"
             "Scottish League and cup games 2001–2019, with crowds: ESPN.<br>"
-            "Results, fixtures, goalscorers, the table and news since 2020: BBC Sport.<br><br>"
+            "Results, fixtures, goalscorers, the table and news since 2020: BBC Sport.<br>"
+            "Live scores and tables for every league: BBC Sport.<br><br>"
             "<b>The club</b><br>"
             "Club details, honours, records, squad and staff: Wikipedia. "
             "The board: the Companies House register (Elgin City Football Club Limited, SC207126). "
@@ -368,6 +396,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._service_timer.stop()
         self._store.update(tab=self._tabs.currentIndex(), geometry=bytes(self.saveGeometry().toHex()).decode(),
-                           h2h_opponent=self._h2h_tab.current_name(), h2h_related=self._h2h_tab.include_related)
+                           h2h_opponent=self._h2h_tab.current_name(), h2h_related=self._h2h_tab.include_related,
+                           live_league=self._scores_tab.current())
         self._runner.shutdown(BACKGROUND_JOIN_TIMEOUT_MS)
         super().closeEvent(event)
