@@ -16,7 +16,9 @@ Simple-* range.
 - **Live Scores**: a page for each league (Premiership, Championship,
   League One, League Two, Highland League, Lowland League East and West):
   today's games, live, on the left and the table on the right; on days
-  with no games, the last results and the next fixtures.
+  with no games, the last results and the next fixtures. And a page for
+  each cup (Scottish Cup, League Cup, Challenge Cup): every round this
+  season, today's games live, the group tables, and Elgin's run.
 
 It keeps itself up to date: results and fixtures every 10 minutes (every
 minute while a game is on), the table hourly, news every 20 minutes and

@@ -9,16 +9,20 @@ from datetime import date, datetime
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QScrollArea, QVBoxLayout, QWidget
 
-from simple_elginfc.core.scoreboard import LEAGUES, LeagueBoard
+from simple_elginfc.core.scoreboard import CUPS, LEAGUES, LeagueBoard
 from simple_elginfc.core.sources.bbc import DONE, LIVE, PRE, Game
 from simple_elginfc.gui.club_tab import card, rich
 from simple_elginfc.gui.style import BLACK, LINE, LOSS_COLOUR, MUTED, RESULT_COLOURS
 
 ELGIN = "Elgin City"
 LIVE_RED = "#c62828"
+NAMES = {k: n for k, n, _ in LEAGUES + CUPS}
 
 
 def _kickoff(iso: str) -> str:
+    """Local kick-off time; "" when there isn't one yet (midnight in the feed)."""
+    if not iso or iso.endswith("T00:00:00Z"):
+        return ""
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone().strftime("%H:%M")
     except ValueError:
@@ -40,7 +44,7 @@ def _reds(n: int) -> str:
 def game_html(g: Game) -> str:
     live = g.state == LIVE
     if g.state == PRE:
-        middle = f"<span style='color:{MUTED}'>{html.escape(_kickoff(g.kickoff) or 'v')}</span>"
+        middle = f"<span style='color:{MUTED}'>{html.escape(_kickoff(g.kickoff) or 'TBC')}</span>"
         if g.status and g.status.lower() not in ("scheduled", ""):
             middle = f"<span style='color:{LOSS_COLOUR}'>{html.escape(g.status)}</span>"
     else:
@@ -94,14 +98,16 @@ def games_html(title: str, games: list[Game]) -> str:
     return "".join(out)
 
 
-def table_html(board: LeagueBoard) -> str:
-    rows = board.rows()
+def table_html(board: LeagueBoard, rows=None, compact: bool = False) -> str:
+    rows = board.rows() if rows is None else rows
     if not rows:
         return f"<span style='color:{MUTED}'>No table yet</span>"
     playing_now = {g.home for g in board.games() if g.state == LIVE} | {g.away for g in board.games() if g.state == LIVE}
-    head = "".join(f"<th align={a} style='padding:4px 6px; color:{MUTED}'>{h}</th>" for h, a in (
-        ("", "right"), ("Team", "left"), ("P", "right"), ("W", "right"), ("D", "right"), ("L", "right"),
-        ("GD", "right"), ("Pts", "right"), ("Form", "left")))
+    columns = [("", "right"), ("Team", "left"), ("P", "right"), ("W", "right"), ("D", "right"), ("L", "right"),
+               ("GD", "right"), ("Pts", "right"), ("Form", "left")]
+    if compact:
+        columns = columns[:-1]
+    head = "".join(f"<th align={a} style='padding:4px 6px; color:{MUTED}'>{h}</th>" for h, a in columns)
     body = []
     for r in rows:
         ours = r.team == ELGIN
@@ -112,15 +118,72 @@ def table_html(board: LeagueBoard) -> str:
         gd = r.goals_for - r.goals_against
         team = html.escape(r.team) + (f" <span style='color:{'white' if ours else LIVE_RED}'>●</span>" if live else "")
         cells = [str(r.rank), team, str(r.played), str(r.won), str(r.drawn), str(r.lost),
-                 f"{gd:+d}" if gd else "0", f"<b>{r.points}</b>", form]
+                 f"{gd:+d}" if gd else "0", f"<b>{r.points}</b>", form][:len(columns)]
         body.append(f"<tr style='{style}'>" + "".join(
             f"<td align={'left' if i in (1, 8) else 'right'} style='padding:4px 6px'>{c}</td>"
             for i, c in enumerate(cells)) + "</tr>")
     note = ""
-    if playing_now:
+    if playing_now and not compact:
         note = (f"<p style='color:{MUTED}; font-size:9pt'><span style='color:{LIVE_RED}'>●</span> playing now. "
                 "BBC Sport's table, refreshed every minute while games are on.</p>")
     return f"<table cellspacing=0 width='100%'><tr>{head}</tr>{''.join(body)}</table>{note}"
+
+
+def _round_order(games: list[Game]) -> list[tuple[str, list[Game]]]:
+    """A cup's games by round, the most recent round first."""
+    rounds: dict[str, list[Game]] = {}
+    for g in games:
+        rounds.setdefault(g.round or "Games", []).append(g)
+    return sorted(rounds.items(), key=lambda kv: max(g.date for g in kv[1]), reverse=True)
+
+
+def cup_games_html(board: LeagueBoard) -> str:
+    parts = []
+    today = board.games("today")
+    if today:
+        parts.append(games_html("", today))
+    for name, games in _round_order(board.games("season")):
+        games = [g for g in games if g not in today]
+        if not games:
+            continue
+        parts.append(f"<p style='margin:16px 0 0 0; font-size:12pt; font-weight:800'>{html.escape(name)}</p>")
+        parts.append(games_html("", games))
+    return "".join(parts) or f"<span style='color:{MUTED}'>No games yet this season.</span>"
+
+
+def cup_side_html(board: LeagueBoard) -> str:
+    """Group tables where the cup has them, else its rounds at a glance;
+    and Elgin's run in it either way."""
+    parts = []
+    tables = board.group_tables()
+    for name, rows in tables:
+        if len(tables) > 1:
+            parts.append(f"<p style='margin:12px 0 2px 0; font-weight:800'>{html.escape(name)}</p>")
+        parts.append(table_html(board, rows, compact=len(tables) > 1))
+    if not tables:
+        head = "".join(f"<th align={a} style='padding:4px 6px; color:{MUTED}'>{h}</th>"
+                       for h, a in (("Round", "left"), ("When", "left"), ("Ties", "right"), ("Played", "right")))
+        body = []
+        for name, games in reversed(_round_order(board.games("season"))):
+            dates = sorted({g.date for g in games})
+            when = _day(dates[0]) if len(dates) == 1 else f"{_day(dates[0])} – {_day(dates[-1])}"
+            played = sum(1 for g in games if g.state == DONE)
+            body.append(f"<tr><td style='padding:4px 6px'><b>{html.escape(name)}</b></td>"
+                        f"<td style='padding:4px 6px; color:{MUTED}'>{html.escape(when)}</td>"
+                        f"<td align=right style='padding:4px 6px'>{len(games)}</td>"
+                        f"<td align=right style='padding:4px 6px'>{played}</td></tr>")
+        parts.append(f"<table cellspacing=0 width='100%'><tr>{head}</tr>{''.join(body)}</table>")
+    ours = [g for g in board.games("season") if ELGIN in (g.home, g.away)]
+    if ours:
+        lines = []
+        for g in ours:
+            score = f"{g.home_score}-{g.away_score}" if g.home_score is not None else (_kickoff(g.kickoff) or "v")
+            lines.append(f"<tr><td style='padding:3px 8px 3px 0; color:{MUTED}'>{html.escape(g.round)}</td>"
+                         f"<td style='padding:3px 0'>{html.escape(g.home)} <b>{score}</b> {html.escape(g.away)}"
+                         f"{' (' + html.escape(g.note) + ')' if g.note else ''}</td></tr>")
+        parts.append(f"<p style='margin:16px 0 4px 0; font-weight:800'>Elgin City in the {html.escape(board.name)}</p>"
+                     f"<table cellspacing=0>{''.join(lines)}</table>")
+    return "".join(parts)
 
 
 class LiveScoresTab(QWidget):
@@ -136,11 +199,17 @@ class LiveScoresTab(QWidget):
         self._leagues = QListWidget()
         self._leagues.setFixedWidth(230)
         self._leagues.setStyleSheet("QListWidget::item { padding: 10px 8px; }")
-        for key, name, _ in LEAGUES:
-            item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, key)
-            self._leagues.addItem(item)
-        self._leagues.currentItemChanged.connect(lambda item, _prev: item and self._show(item.data(Qt.UserRole)))
+        for heading, entries in (("LEAGUES", LEAGUES), ("CUPS", CUPS)):
+            header = QListWidgetItem(heading)
+            header.setFlags(Qt.NoItemFlags)  # a heading, not a page
+            header.setForeground(Qt.gray)
+            self._leagues.addItem(header)
+            for key, name, _ in entries:
+                item = QListWidgetItem(name)
+                item.setData(Qt.UserRole, key)
+                self._leagues.addItem(item)
+        self._leagues.currentItemChanged.connect(
+            lambda item, _prev: item and item.data(Qt.UserRole) and self._show(item.data(Qt.UserRole)))
         side = QVBoxLayout()
         side.addWidget(self._leagues, stretch=1)
         self._updated = QLabel()
@@ -152,6 +221,10 @@ class LiveScoresTab(QWidget):
         self._games_card, gl = card("Games")
         self._games = rich()
         gl.addWidget(self._games)
+        # (pinned to the top, a wrapping label isn't given the height it needs;
+        # a stretch under it keeps it at the top instead)
+        gl.setAlignment(Qt.Alignment())
+        gl.addStretch()
         games_scroll = QScrollArea()
         games_scroll.setWidgetResizable(True)
         games_scroll.setFrameShape(QFrame.NoFrame)
@@ -161,6 +234,8 @@ class LiveScoresTab(QWidget):
         self._table_card, tl = card("Table")
         self._table = rich()
         tl.addWidget(self._table)
+        tl.setAlignment(Qt.Alignment())
+        tl.addStretch()
         table_scroll = QScrollArea()
         table_scroll.setWidgetResizable(True)
         table_scroll.setFrameShape(QFrame.NoFrame)
@@ -177,14 +252,16 @@ class LiveScoresTab(QWidget):
 
     def current(self) -> str:
         item = self._leagues.currentItem()
-        return item.data(Qt.UserRole) if item else LEAGUES[0][0]
+        return (item.data(Qt.UserRole) if item else None) or LEAGUES[0][0]
 
     def show_boards(self, boards: dict[str, LeagueBoard]) -> None:
         self._boards = boards
         for i in range(self._leagues.count()):
             item = self._leagues.item(i)
             key = item.data(Qt.UserRole)
-            name = next(n for k, n, _ in LEAGUES if k == key)
+            if not key:
+                continue  # a heading
+            name = NAMES[key]
             b = boards.get(key)
             if b and b.live_count:
                 item.setText(f"{name}   ● {b.live_count} live")
@@ -197,8 +274,8 @@ class LiveScoresTab(QWidget):
                 item.setForeground(Qt.black)
         if self._leagues.currentItem() is None:
             # open on a league with games on, else the Premiership
-            live = next((k for k, _, _ in LEAGUES if boards.get(k) and boards[k].live_count), None)
-            today = next((k for k, _, _ in LEAGUES if boards.get(k) and boards[k].any_today), None)
+            live = next((k for k, _, _ in LEAGUES + CUPS if boards.get(k) and boards[k].live_count), None)
+            today = next((k for k, _, _ in LEAGUES + CUPS if boards.get(k) and boards[k].any_today), None)
             self.select(live or today or LEAGUES[0][0])
         else:
             self._show(self.current())
@@ -209,12 +286,19 @@ class LiveScoresTab(QWidget):
     def _show(self, key: str) -> None:
         self.league_changed.emit(key)
         board = self._boards.get(key)
-        name = next(n for k, n, _ in LEAGUES if k == key)
-        self._games_card.findChild(QLabel, "cardTitle").setText(f"{name.upper()} · GAMES")
-        self._table_card.findChild(QLabel, "cardTitle").setText(f"{name.upper()} · TABLE")
+        name = NAMES.get(key, key)
+        is_cup = key in {k for k, _, _ in CUPS}
+        self._games_card.findChild(QLabel, "cardTitle").setText(f"{name.upper()} · {'ROUNDS' if is_cup else 'GAMES'}")
+        side = "TABLE" if not is_cup else ("TABLES" if board and len(board.groups) > 1 else
+                                          "TABLE" if board and board.groups else "ROUNDS")
+        self._table_card.findChild(QLabel, "cardTitle").setText(f"{name.upper()} · {side}")
         if board is None:
             self._games.setText(f"<span style='color:{MUTED}'>Fetching the scores…</span>")
             self._table.setText("")
+            return
+        if board.kind == "cup":
+            self._games.setText(cup_games_html(board))
+            self._table.setText(cup_side_html(board))
             return
         today = board.games("today")
         parts = []

@@ -1,3 +1,4 @@
+import re
 from datetime import date
 
 from simple_elginfc.core import scoreboard
@@ -65,3 +66,45 @@ def test_no_games_today_shows_last_and_next_rounds():
     b = scoreboard.fetch_league("league-two", date(2026, 11, 1), get, with_table=False)
     assert {g["date"] for g in b.recent} == {"2026-10-31", "2026-10-30"}
     assert {g["date"] for g in b.upcoming} == {"2026-11-06", "2026-11-07"}
+
+
+def cup_event(home, away, status, day, label, hs=None, aws=None):
+    e = event(home, away, status, day, hs, aws, "FT" if status == "PostEvent" else "")
+    e["eventGroupingLabel"] = f"Scotland - Scottish Cup - {label}"
+    return e
+
+
+def test_cup_round_names():
+    (g,) = bbc.parse_games(payload(cup_event("Elgin City", "Partick Thistle", "PreEvent", "2026-11-28", "3rd Round")))
+    assert g.round == "3rd Round"
+
+
+def test_cup_groups():
+    tables = bbc.parse_tables({"tournaments": [{"stages": [{"name": "Group Stage", "rounds": [
+        {"name": "Group A", "participants": [{"name": "Aberdeen", "rank": 1, "points": 12}]},
+        {"name": "Group B", "participants": [{"name": "Dundee United", "rank": 1, "points": 9}]}]}]}]})
+    assert [(n, rows[0].team) for n, rows in tables] == [("Group A", "Aberdeen"), ("Group B", "Dundee United")]
+
+
+def test_cup_season_fetches_finished_months_once():
+    calls = []
+
+    season = [cup_event("Stirling University", "Elgin City", "PostEvent", "2026-10-24", "2nd Round", 1, 2),
+              cup_event("Elgin City", "Partick Thistle", "PreEvent", "2026-11-28", "3rd Round")]
+
+    def get(url):
+        calls.append(url)
+        if "football-table" in url:
+            return {"tournaments": []}
+        start = re.search(r"selectedStartDate=([\d-]+)", url).group(1)
+        end = re.search(r"selectedEndDate=([\d-]+)", url).group(1)
+        # like BBC's feed: only the games in the range asked for
+        return payload(*[e for e in season if start <= e["date"]["isoDate"] <= end])
+
+    first = scoreboard.fetch_cup("scottish-cup", date(2026, 11, 1), get)
+    assert [g["round"] for g in first.season] == ["2nd Round", "3rd Round"]
+    assert "2026-10" in first.months and "2026-11" not in first.months
+    calls.clear()
+    again = scoreboard.fetch_cup("scottish-cup", date(2026, 11, 1), get, first)
+    assert not any("selectedStartDate=2026-10-01" in u for u in calls)  # October isn't asked for again
+    assert len(again.season) == 2

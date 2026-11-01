@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
             "(Richard Rundle).<br>"
             "Scottish League and cup games 2001–2019, with crowds: ESPN.<br>"
             "Results, fixtures, goalscorers, the table and news since 2020: BBC Sport.<br>"
-            "Live scores and tables for every league: BBC Sport.<br><br>"
+            "Live scores and tables for every league and cup: BBC Sport.<br><br>"
             "<b>The club</b><br>"
             "Club details, honours, records, squad and staff: Wikipedia. "
             "The board: the Companies House register (Elgin City Football Club Limited, SC207126). "

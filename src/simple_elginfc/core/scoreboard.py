@@ -19,6 +19,13 @@ LEAGUES = [
     ("lowland-east", "Lowland League East", "scottish-lowland-league-east"),
     ("lowland-west", "Lowland League West", "scottish-lowland-league-west"),
 ]
+# (key, name, BBC tournament). The Highland League Cup, North of Scotland
+# Cup and others aren't on BBC Sport.
+CUPS = [
+    ("scottish-cup", "Scottish Cup", "scottish-cup"),
+    ("league-cup", "League Cup", "scottish-league-cup"),
+    ("challenge-cup", "Challenge Cup", "scottish-challenge-cup"),
+]
 
 
 @dataclass
@@ -32,6 +39,15 @@ class LeagueBoard:
     table: list[dict] = field(default_factory=list)  # bbc.TableRow as dicts
     playing: list[str] = field(default_factory=list)  # teams the table marks as playing now
     updated: float = 0.0
+    # a cup's: every game this season, its group tables, and the months
+    # already fetched for good ("2026-08"), so they needn't be again
+    kind: str = "league"
+    season: list[dict] = field(default_factory=list)
+    groups: list[dict] = field(default_factory=list)  # {"name": "Group A", "rows": [TableRow dicts]}
+    months: list[str] = field(default_factory=list)
+
+    def group_tables(self) -> list[tuple[str, list[bbc.TableRow]]]:
+        return [(g["name"], [bbc.TableRow(**r) for r in g["rows"]]) for g in self.groups]
 
     def games(self, which: str = "today") -> list[bbc.Game]:
         return [bbc.Game(**g) for g in getattr(self, which)]
@@ -104,13 +120,64 @@ def fetch_league(key: str, today: Optional[date] = None, get: Callable = None,
     return board
 
 
+def _season_start(today: date) -> date:
+    return date(today.year if today.month >= 7 else today.year - 1, 7, 1)
+
+
+def fetch_cup(key: str, today: Optional[date] = None, get: Callable = None,
+              previous: Optional[LeagueBoard] = None) -> LeagueBoard:
+    """A cup's whole season: every round so far and the next, its group
+    tables, and today's games. Months that are over are fetched once."""
+    from simple_elginfc.core.live import get_json
+
+    get = get or get_json
+    today = today or date.today()
+    _, name, slug = next(cup for cup in CUPS if cup[0] == key)
+    board = LeagueBoard(key, name, kind="cup")
+    kept = [g for g in (previous.season if previous else []) if g["date"][:7] in (previous.months if previous else [])]
+    board.months = list(previous.months) if previous else []
+    games = [bbc.Game(**g) for g in kept]
+    month = _season_start(today)
+    last_month = (_month_end(today) + timedelta(days=1)).replace(day=1)  # next month too: the next round's ties
+    while month <= last_month:
+        label = f"{month:%Y-%m}"
+        end = _month_end(month)
+        if label not in board.months:
+            if month <= today <= end:  # this month: the parts BBC's feed will answer
+                found = bbc.parse_games(get(bbc.tournament_scores_url(slug, month, today, today)))
+                if today < end:
+                    found += bbc.parse_games(get(bbc.tournament_scores_url(slug, today + timedelta(days=1), end, today)))
+            else:
+                found = bbc.parse_games(get(bbc.tournament_scores_url(slug, month, end, today)))
+            games += found
+            if end < today and all(g.state == bbc.DONE or "postpon" in g.status.lower() for g in found):
+                board.months.append(label)
+        month = end + timedelta(days=1)
+    games.sort(key=lambda g: (g.kickoff or g.date, g.home))
+    board.season = [asdict(g) for g in games]
+    board.today = [asdict(g) for g in games if g.date == today.isoformat()]
+    try:
+        payload = get(bbc.table_url(slug))
+        board.groups = [{"name": n, "rows": [asdict(r) for r in rows]} for n, rows in bbc.parse_tables(payload)]
+        board.playing = sorted(bbc.parse_playing(payload))
+    except (OSError, ValueError, KeyError):
+        board.groups = previous.groups if previous else []
+    board.updated = time.time()
+    return board
+
+
 def fetch_all(previous: Optional[dict[str, LeagueBoard]] = None, today: Optional[date] = None,
               get: Callable = None) -> dict[str, LeagueBoard]:
-    """Every league. A league that fails keeps its last board."""
+    """Every league and cup. One that fails keeps its last board."""
     boards = dict(previous or {})
     for key, _, _ in LEAGUES:
         try:
             boards[key] = fetch_league(key, today, get)
+        except (OSError, ValueError, KeyError):
+            pass
+    for key, _, _ in CUPS:
+        try:
+            boards[key] = fetch_cup(key, today, get, boards.get(key))
         except (OSError, ValueError, KeyError):
             pass
     if not boards:

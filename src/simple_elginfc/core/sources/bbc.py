@@ -267,6 +267,13 @@ class Game:
     away_reds: int = 0
     half_time: str = ""  # "1-0", home first
     note: str = ""  # "aet", "4-3 on penalties"
+    round: str = ""  # a cup's round: "3rd Round", "Group Stage - Group A", "Semi-finals"
+
+
+def _round(label: str) -> str:
+    """"Scotland - League Cup - Group Stage - Group A" -> "Group Stage - Group A"."""
+    parts = [p.strip() for p in label.split(" - ")]
+    return " - ".join(parts[2:]) if len(parts) > 2 else ""
 
 
 def _reds(side: dict) -> int:
@@ -310,7 +317,7 @@ def parse_games(payload: dict) -> list[Game]:
                     home_scorers=_scorers(home), away_scorers=_scorers(away),
                     home_reds=_reds(home), away_reds=_reds(away),
                     half_time=f"{ht[0]}-{ht[1]}" if None not in ht and state != PRE else "",
-                    note="; ".join(notes)))
+                    note="; ".join(notes), round=_round(e.get("eventGroupingLabel") or "")))
     games.sort(key=lambda g: (g.kickoff or g.date, g.home))
     return games
 
@@ -321,3 +328,28 @@ def parse_playing(payload: dict) -> set[str]:
     for t in payload.get("tournaments") or []:
         urns |= set(t.get("matchParticipantUrns") or [])
     return urns
+
+
+def parse_tables(payload: dict) -> list[tuple[str, list[TableRow]]]:
+    """Every table in the feed: a league's one, or a cup's groups
+    ("Group A"…) or league stage."""
+    tables = []
+    for tournament in payload.get("tournaments") or []:
+        for stage in tournament.get("stages") or []:
+            rounds = stage.get("rounds") or []
+            for rnd in rounds:
+                rows = []
+                for p in sorted(rnd.get("participants") or [], key=lambda p: p.get("rank") or 999):
+                    form = "".join((f.get("value") or "?")[:1].upper() for f in (p.get("formGuide") or [])
+                                   if isinstance(f, dict))
+                    rows.append(TableRow(
+                        rank=int(p.get("rank") or len(rows) + 1),
+                        team=canonical(p.get("name") or p.get("shortName") or "?"),
+                        played=int(p.get("matchesPlayed") or 0), won=int(p.get("wins") or 0),
+                        drawn=int(p.get("draws") or 0), lost=int(p.get("losses") or 0),
+                        goals_for=int(p.get("goalsScoredFor") or 0), goals_against=int(p.get("goalsScoredAgainst") or 0),
+                        points=int(p.get("points") or 0), form=form[-5:]))
+                if rows:
+                    name = (rnd.get("name") if len(rounds) > 1 else "") or stage.get("name") or tournament.get("name") or ""
+                    tables.append((name, rows))
+    return tables
