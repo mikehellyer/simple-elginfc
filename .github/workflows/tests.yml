@@ -12,14 +12,21 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false  # (one OS failing shouldn't hide how the others did)
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen  # some tests build the app's screens; there's no display here
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.13"
+      # Qt needs these even offscreen; the Ubuntu runner doesn't have them
+      - name: Install the system libraries Qt needs
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - run: pip install -e . pytest pip-audit
       - run: pytest
       # known vulnerabilities in anything the app depends on fail the build
