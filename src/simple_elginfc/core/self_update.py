@@ -5,6 +5,8 @@ notifies. Everything here only runs after an explicit "Update" click.
 """
 from __future__ import annotations
 
+import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +19,16 @@ from simple_elginfc.core.http import SSL_CONTEXT
 from simple_elginfc.core.platform_info import debian_arch
 
 DOWNLOAD_TIMEOUT_SECONDS = 30
+# Updates are only ever taken from this project's own GitHub releases…
+RELEASE_DOWNLOADS = "https://github.com/mikehellyer/simple-elginfc/releases/download/"
+# …and only when the release's list of SHA-256 checksums (made by the
+# release workflow) agrees with what was downloaded.
+CHECKSUMS_NAME = "SHA256SUMS.txt"
+MAX_INSTALLER_BYTES = 500_000_000
+
+
+class UpdateRefused(Exception):
+    """The update couldn't be downloaded or didn't check out; says why."""
 
 
 def _installer_suffix() -> str:
@@ -43,20 +55,78 @@ def find_asset_for_this_platform(assets: list[tuple[str, str]], arch: Optional[s
     return None
 
 
-def download_asset(url: str) -> Optional[Path]:
-    """Download a release asset to a fresh temp directory. None on failure."""
+def is_from_our_releases(url: str) -> bool:
+    return url.startswith(RELEASE_DOWNLOADS) and ".." not in url[len(RELEASE_DOWNLOADS):]
+
+
+def parse_checksums(text: str) -> dict[str, str]:
+    """sha256sum's output ("<hex>  <filename>" per line) -> {filename: hex}."""
+    sums = {}
+    for line in text.splitlines():
+        m = re.fullmatch(r"([0-9a-fA-F]{64})\s+\*?(\S.*)", line.strip())
+        if m:
+            sums[m.group(2).strip().rsplit("/", 1)[-1]] = m.group(1).lower()
+    return sums
+
+
+def _open(url: str):
+    request = urllib.request.Request(url, headers={"User-Agent": "Simple-ElginFC/1"})
+    return urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS, context=SSL_CONTEXT)
+
+
+def fetch_checksums(assets: list[tuple[str, str]]) -> dict[str, str]:
+    url = next((u for name, u in assets if name == CHECKSUMS_NAME), None)
+    if url is None or not is_from_our_releases(url):
+        raise UpdateRefused("this release has no checksums to check the installer against")
+    try:
+        with _open(url) as response:
+            text = response.read(100_001).decode("utf-8", errors="replace")
+    except OSError as error:
+        raise UpdateRefused("couldn't download the checksums") from error
+    return parse_checksums(text)
+
+
+def download_asset(url: str, expected_sha256: Optional[str] = None) -> Optional[Path]:
+    """Download a release asset to a fresh temp directory, checking its
+    SHA-256 if one is given. None on failure (a file that doesn't match
+    is deleted)."""
     filename = url.rsplit("/", 1)[-1] or "simple-elginfc-update"
     dest_dir = Path(tempfile.mkdtemp(prefix="simple-elginfc-update-"))
     dest_path = dest_dir / filename
-
-    request = urllib.request.Request(url, headers={"User-Agent": "Simple-ElginFC/1"})
+    digest = hashlib.sha256()
+    size = 0
     try:
-        with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
-            with open(dest_path, "wb") as out_file:
-                shutil.copyfileobj(response, out_file)
+        with _open(url) as response, open(dest_path, "wb") as out_file:
+            while chunk := response.read(1 << 16):
+                size += len(chunk)
+                if size > MAX_INSTALLER_BYTES:
+                    raise OSError("installer too big")
+                digest.update(chunk)
+                out_file.write(chunk)
     except OSError:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        return None
+    if expected_sha256 and digest.hexdigest() != expected_sha256.lower():
+        shutil.rmtree(dest_dir, ignore_errors=True)
         return None
     return dest_path
+
+
+def download_update(assets: list[tuple[str, str]], asset_url: str) -> Path:
+    """The installer for this machine, downloaded and checked: from this
+    project's releases, and matching the release's published SHA-256.
+    Raises UpdateRefused (with the reason) otherwise."""
+    if not is_from_our_releases(asset_url):
+        raise UpdateRefused("the installer isn't from Simple-ElginFC's own releases")
+    sums = fetch_checksums(assets)
+    name = asset_url.rsplit("/", 1)[-1]
+    expected = sums.get(name)
+    if not expected:
+        raise UpdateRefused(f"no checksum for {name} in the release")
+    path = download_asset(asset_url, expected)
+    if path is None:
+        raise UpdateRefused("the download failed, or didn't match its checksum")
+    return path
 
 
 def launch_installer(path: Path) -> Optional[subprocess.Popen]:

@@ -36,10 +36,13 @@ def card(heading: str) -> tuple[QFrame, QVBoxLayout]:
 
 
 def rich(text: str = "") -> QLabel:
+    """A label for the app's own HTML. Anything from the web in it must be
+    escaped first (html.escape); and it never opens links by itself, so
+    nothing that slips through can send anyone to a site or a file."""
     label = QLabel(text)
     label.setTextFormat(Qt.RichText)
     label.setWordWrap(True)
-    label.setOpenExternalLinks(True)
+    label.setOpenExternalLinks(False)
     label.setTextInteractionFlags(Qt.TextBrowserInteraction)
     label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
     return label
@@ -79,6 +82,7 @@ class ClubTab(QScrollArea):
         self._name = QLabel("Elgin City FC")
         self._name.setStyleSheet("color: white; font-size: 26pt; font-weight: 800;")
         self._facts = QLabel()
+        self._facts.setTextFormat(Qt.PlainText)  # (Wikipedia's words: never read as HTML)
         self._facts.setStyleSheet("color: #d0d0d4; font-size: 11.5pt;")
         self._facts.setWordWrap(True)
         names.addStretch()
@@ -124,7 +128,6 @@ class ClubTab(QScrollArea):
 
         self._squad, squad_l = card("First-team squad")
         self._squad_body = rich()
-        self._squad_body.setOpenExternalLinks(False)
         self._squad_body.linkActivated.connect(self._open_player)
         squad_l.addWidget(self._squad_body)
         self._honours, honours_l = card("Honours")

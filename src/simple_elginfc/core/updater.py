@@ -46,7 +46,10 @@ def check_for_update(current_version: str, owner: str, repo: str) -> Optional[Up
     request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
     try:
         with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS, context=SSL_CONTEXT) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            data = response.read(2_000_001)  # (a release's details are a few KB)
+            if len(data) > 2_000_000:
+                return None
+            payload = json.loads(data.decode("utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
 

@@ -2,6 +2,7 @@
 wins, draws and defeats."""
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QLabel, QStyleFactory
 
@@ -80,7 +81,16 @@ def result_chip(result: str) -> str:
             f"padding:1px 5px; border-radius:3px;'>&nbsp;{result or '–'}&nbsp;</span>")
 
 
+def plain_tip(text: str) -> str:
+    """A tooltip that shows text exactly as it is. (Qt reads a tooltip as
+    HTML when it looks like some, and these hold names from the web.)"""
+    import html
+
+    return "<qt>" + html.escape(text).replace("\n", "<br>") + "</qt>"
+
+
 def title(text: str) -> QLabel:
     label = QLabel(text.upper())
+    label.setTextFormat(Qt.PlainText)  # (some titles are names from the web)
     label.setObjectName("cardTitle")
     return label

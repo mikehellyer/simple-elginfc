@@ -22,7 +22,7 @@ def test_check_for_update_returns_none_when_up_to_date():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return b'{"tag_name": "v0.1.0", "html_url": "https://example.com"}'
 
     with patch("urllib.request.urlopen", return_value=_Response()):
@@ -37,7 +37,7 @@ def test_check_for_update_returns_info_when_newer():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return b'{"tag_name": "v0.2.0", "html_url": "https://example.com/rel", "body": "notes"}'
 
     with patch("urllib.request.urlopen", return_value=_Response()):
@@ -56,7 +56,7 @@ def test_check_for_update_captures_release_assets():
         def __exit__(self, *exc):
             return False
 
-        def read(self):
+        def read(self, size=-1):
             return (
                 b'{"tag_name": "v0.2.0", "html_url": "https://example.com/rel", '
                 b'"assets": ['

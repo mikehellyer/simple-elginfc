@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView
 from simple_elginfc.core.models import AWAY, HOME, NEUTRAL, Match
 from simple_elginfc.core.stats import counts
 from simple_elginfc.core.teams import matches_query
-from simple_elginfc.gui.style import MUTED, RESULT_COLOURS
+from simple_elginfc.gui.style import MUTED, RESULT_COLOURS, plain_tip
 
 COLUMNS = ["Date", "Season", "Competition", "Round", "Opponent", "Venue", "Result", "Score", "Attendance"]
 VENUE_NAMES = {HOME: "Home", AWAY: "Away", NEUTRAL: "Neutral"}
@@ -78,7 +78,8 @@ class MatchModel(QAbstractTableModel):
                 "Round": m.round,
                 "Opponent": m.opponent,
                 "Venue": VENUE_NAMES.get(m.venue, m.venue),
-                "Result": m.result if counts(m) else ("—" if not m.played else "void"),
+                # (friendlies are left out of the records, but aren't void)
+                "Result": m.result if counts(m) or m.competition == "Friendly" else ("—" if not m.played else "void"),
                 "Score": m.score or ("v" if not m.played else ""),
                 "Attendance": f"{m.attendance:,}" if m.attendance else "",
             }[col]
@@ -106,7 +107,7 @@ class MatchModel(QAbstractTableModel):
             tip = describe(m)
             if m.note:
                 tip += f"\n{m.note}"
-            return tip
+            return plain_tip(tip)
         return None
 
 

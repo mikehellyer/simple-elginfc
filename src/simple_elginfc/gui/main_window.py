@@ -16,7 +16,7 @@ from simple_elginfc.core import live, scoreboard
 from simple_elginfc.core.diagnostics import log_event
 from simple_elginfc.core.history import History
 from simple_elginfc.core.models import season_start_year, season_of
-from simple_elginfc.core.self_update import download_asset, find_asset_for_this_platform, launch_installer
+from simple_elginfc.core.self_update import download_update, find_asset_for_this_platform, launch_installer
 from simple_elginfc.core.settings import SettingsStore
 from simple_elginfc.core.sources.bbc import DONE, LIVE, PRE
 from simple_elginfc.core.updater import API_TIMEOUT_SECONDS, check_for_update
@@ -356,11 +356,13 @@ class MainWindow(QMainWindow):
             self._update_banner.set_status(f"No installer for this platform — see {self._pending_update.url}")
             return
         self._update_banner.set_busy(True, "Downloading…")
-        self._runner.run(lambda: download_asset(asset_url), self._on_update_downloaded, lambda error: self._on_update_downloaded(None))
+        assets = self._pending_update.assets
+        self._runner.run(lambda: download_update(assets, asset_url), self._on_update_downloaded,
+                         lambda error: self._on_update_downloaded(None, str(error)))
 
-    def _on_update_downloaded(self, path) -> None:
+    def _on_update_downloaded(self, path, why: str = "") -> None:
         if path is None:
-            self._update_banner.set_status("Couldn't download the update — try again")
+            self._update_banner.set_status(f"Couldn't update: {why or 'the download failed'} — try again")
             self._update_banner.set_busy(False)
             return
         try:

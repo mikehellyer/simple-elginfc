@@ -156,3 +156,66 @@ def test_linux_picks_the_deb_for_this_processor():
         assert find_asset_for_this_platform(assets, arch="arm64") == "https://dl/pi.deb"
         assert find_asset_for_this_platform(assets, arch="amd64") == "https://dl/pc.deb"
         assert find_asset_for_this_platform(assets[2:], arch="arm64") is None
+
+
+# --- only our own releases, and only when the checksum matches
+
+import hashlib  # noqa: E402
+
+import pytest  # noqa: E402
+
+from simple_elginfc.core.self_update import (  # noqa: E402
+    RELEASE_DOWNLOADS,
+    UpdateRefused,
+    download_update,
+    is_from_our_releases,
+    parse_checksums,
+)
+
+DEB = RELEASE_DOWNLOADS + "v0.2.0/simple-elginfc_0.2.0_amd64.deb"
+SUMS = RELEASE_DOWNLOADS + "v0.2.0/SHA256SUMS.txt"
+BYTES = b"the real installer"
+
+
+def _serve(files):
+    def urlopen(request, **kwargs):
+        return _Response(files[request.full_url])
+    return urlopen
+
+
+def test_only_our_releases():
+    assert is_from_our_releases(DEB)
+    assert not is_from_our_releases("https://github.com/someone-else/simple-elginfc/releases/download/v1/x.deb")
+    assert not is_from_our_releases("http://github.com/mikehellyer/simple-elginfc/releases/download/v1/x.deb")
+    assert not is_from_our_releases(RELEASE_DOWNLOADS + "../../evil/x.deb")
+
+
+def test_checksums_parsed():
+    text = f"{'a' * 64}  simple-elginfc_0.2.0_amd64.deb\n{'B' * 64} *artifacts/x/Setup.exe\nnonsense\n"
+    assert parse_checksums(text) == {"simple-elginfc_0.2.0_amd64.deb": "a" * 64, "Setup.exe": "b" * 64}
+
+
+def test_update_downloaded_when_checksum_matches(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.mkdtemp", lambda prefix="": str(tmp_path))
+    sums = f"{hashlib.sha256(BYTES).hexdigest()}  simple-elginfc_0.2.0_amd64.deb\n".encode()
+    assets = [("simple-elginfc_0.2.0_amd64.deb", DEB), ("SHA256SUMS.txt", SUMS)]
+    with patch("urllib.request.urlopen", side_effect=_serve({DEB: BYTES, SUMS: sums})):
+        assert download_update(assets, DEB).read_bytes() == BYTES
+
+
+def test_tampered_update_refused_and_deleted(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.mkdtemp", lambda prefix="": str(tmp_path / "dl"))
+    (tmp_path / "dl").mkdir()
+    sums = f"{hashlib.sha256(BYTES).hexdigest()}  simple-elginfc_0.2.0_amd64.deb\n".encode()
+    assets = [("simple-elginfc_0.2.0_amd64.deb", DEB), ("SHA256SUMS.txt", SUMS)]
+    with patch("urllib.request.urlopen", side_effect=_serve({DEB: b"something else", SUMS: sums})):
+        with pytest.raises(UpdateRefused, match="checksum"):
+            download_update(assets, DEB)
+    assert not (tmp_path / "dl").exists()
+
+
+def test_update_without_checksums_or_from_elsewhere_refused():
+    with pytest.raises(UpdateRefused, match="no checksums"):
+        download_update([("simple-elginfc_0.2.0_amd64.deb", DEB)], DEB)
+    with pytest.raises(UpdateRefused, match="own releases"):
+        download_update([], "https://example.com/simple-elginfc_0.2.0_amd64.deb")

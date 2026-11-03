@@ -14,7 +14,7 @@ from simple_elginfc.core.live import Fixtures, LeagueTable, News
 from simple_elginfc.core.sources.bbc import DONE, LIVE, PRE
 from simple_elginfc.gui.club_tab import card, rich
 from simple_elginfc.gui.match_table import nice_date
-from simple_elginfc.gui.style import BLACK, INK, MUTED, RESULT_COLOURS, SHADE, result_chip
+from simple_elginfc.gui.style import BLACK, INK, MUTED, RESULT_COLOURS, SHADE, plain_tip, result_chip
 
 
 def _kickoff(iso: str) -> str:
@@ -120,7 +120,7 @@ class LatestTab(QWidget):
         for r in rows:
             ours = r.team == "Elgin City"
             style = f"background:{BLACK}; color:white; font-weight:700" if ours else ""
-            form = "".join(f"<span style='color:{RESULT_COLOURS.get(c, MUTED) if not ours else 'white'}'>{c}</span>" for c in r.form)
+            form = "".join(f"<span style='color:{RESULT_COLOURS.get(c, MUTED) if not ours else 'white'}'>{html.escape(c)}</span>" for c in r.form)
             gd = r.goals_for - r.goals_against
             cells = [str(r.rank), html.escape(r.team), str(r.played), str(r.won), str(r.drawn), str(r.lost),
                      str(r.goals_for), str(r.goals_against), f"{gd:+d}" if gd else "0", f"<b>{r.points}</b>", form]
@@ -140,12 +140,13 @@ class LatestTab(QWidget):
                 pass
             entry = QListWidgetItem(f"{item.title}\n{item.summary}\n{when}")
             entry.setData(Qt.UserRole, item.link)
-            entry.setToolTip(item.link)
+            entry.setToolTip(plain_tip(item.link))
             self._news.addItem(entry)
         if not self._news.count():
             self._news.addItem("No news yet")
 
     def _open(self, item: QListWidgetItem) -> None:
-        link = item.data(Qt.UserRole)
-        if link:
-            QDesktopServices.openUrl(QUrl(link))
+        url = QUrl(item.data(Qt.UserRole) or "")
+        # only a web page: never a file, or another program's kind of link
+        if url.isValid() and url.scheme() == "https" and url.host():
+            QDesktopServices.openUrl(url)

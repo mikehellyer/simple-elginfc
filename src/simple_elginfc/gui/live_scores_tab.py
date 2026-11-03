@@ -114,7 +114,7 @@ def table_html(board: LeagueBoard, rows=None, compact: bool = False) -> str:
         live = r.team in playing_now
         style = (f"background:{BLACK}; color:white; font-weight:700" if ours
                  else "background:#fff4f4" if live else "")
-        form = "".join(f"<span style='color:{'white' if ours else RESULT_COLOURS.get(c, MUTED)}'>{c}</span>" for c in r.form)
+        form = "".join(f"<span style='color:{'white' if ours else RESULT_COLOURS.get(c, MUTED)}'>{html.escape(c)}</span>" for c in r.form)
         gd = r.goals_for - r.goals_against
         team = html.escape(r.team) + (f" <span style='color:{'white' if ours else LIVE_RED}'>●</span>" if live else "")
         cells = [str(r.rank), team, str(r.played), str(r.won), str(r.drawn), str(r.lost),

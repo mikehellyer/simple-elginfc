@@ -25,12 +25,22 @@ from simple_elginfc.core.sources import bbc
 
 USER_AGENT = f"Simple-ElginFC/{__version__} (+https://github.com/mikehellyer/simple-elginfc)"
 TIMEOUT = 20
+# Nothing the app fetches comes near this (a player's photo is ~100 KB);
+# it stops a misbehaving server from filling the memory.
+MAX_BYTES = 20_000_000
+
+
+def read_capped(response, limit: int = MAX_BYTES) -> bytes:
+    data = response.read(limit + 1)
+    if len(data) > limit:
+        raise OSError(f"answer bigger than {limit} bytes")
+    return data
 
 
 def get_bytes(url: str, headers: Optional[dict] = None) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     with urllib.request.urlopen(request, timeout=TIMEOUT, context=SSL_CONTEXT) as response:
-        return response.read()
+        return read_capped(response)
 
 
 def get_text(url: str, headers: Optional[dict] = None) -> str:

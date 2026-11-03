@@ -9,7 +9,7 @@ description = "Everything about Elgin City FC: the club, every game, and head-to
 authors = [{ name = "Mike Hellyer" }]
 requires-python = ">=3.12"
 dependencies = [
-    "PySide6",
+    "PySide6-Essentials",  # (only QtCore, QtGui and QtWidgets: not the rest of Qt, web browser engine included)
     "platformdirs",
     "certifi",
 ]

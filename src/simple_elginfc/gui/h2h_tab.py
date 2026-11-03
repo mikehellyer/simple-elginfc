@@ -18,7 +18,7 @@ from simple_elginfc.core.stats import HeadToHead, Record, head_to_head, opponent
 from simple_elginfc.gui.club_tab import card, rich
 from simple_elginfc.gui.match_table import VENUE_NAMES, MatchTable, nice_date
 from simple_elginfc.gui.matches_tab import match_details_html
-from simple_elginfc.gui.style import DRAW_COLOUR, LOSS_COLOUR, MUTED, WIN_COLOUR
+from simple_elginfc.gui.style import DRAW_COLOUR, LOSS_COLOUR, MUTED, WIN_COLOUR, plain_tip
 
 
 def _when(m: Optional[Match]) -> str:
@@ -50,16 +50,31 @@ def records_table(rows: list[tuple[str, Record]]) -> str:
     return f"<table cellspacing=0><tr><th></th>{head}</tr>{body}</table>"
 
 
+def safe_cell(value):
+    """A spreadsheet cell that can't run as a formula. Names and notes come
+    from the web, and Excel or LibreOffice would run a cell starting with
+    = + - or @ ("CSV injection"); a leading ' keeps it as text."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def safe_filename(name: str) -> str:
+    """A club's name made fit to suggest as a file name."""
+    return "".join(ch for ch in name if ch.isalnum() or ch in " .'-()&").strip(" .") or "opponent"
+
+
 def save_csv(path: Path, matches: list[Match]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["Date", "Season", "Competition", "Round", "Opponent", "Venue", "Elgin", "Opponent goals",
                     "Result", "Home team", "Score", "Away team", "Attendance", "Ground", "Elgin scorers", "Note"])
         for m in matches:
-            w.writerow([m.date or "", m.season, m.competition, m.round, m.opponent, VENUE_NAMES.get(m.venue, m.venue),
-                        "" if m.elgin_goals is None else m.elgin_goals,
-                        "" if m.opponent_goals is None else m.opponent_goals, m.result, m.home_team,
-                        m.home_away_score, m.away_team, m.attendance or "", m.ground, "; ".join(m.elgin_scorers), m.note])
+            w.writerow([safe_cell(v) for v in (
+                m.date or "", m.season, m.competition, m.round, m.opponent, VENUE_NAMES.get(m.venue, m.venue),
+                "" if m.elgin_goals is None else m.elgin_goals,
+                "" if m.opponent_goals is None else m.opponent_goals, m.result, m.home_team,
+                m.home_away_score, m.away_team, m.attendance or "", m.ground, "; ".join(m.elgin_scorers), m.note)])
 
 
 class ResultBar(QWidget):
@@ -282,10 +297,10 @@ class HeadToHeadTab(QWidget):
         self._h2h = h
         self._set_enabled(True)
         others = [c for c in h.clubs if c != club]
-        self._title.setText(f"Elgin City v {club}")
-        self._title.setToolTip("Includes " + ", ".join(others) if others else "")
+        self._title.setText(f"Elgin City v {html.escape(club)}")
+        self._title.setToolTip(plain_tip("Includes " + ", ".join(others)) if others else "")
         if others:
-            self._title.setText(f"Elgin City v {club} <span style='font-size:11pt; color:{MUTED}'>(with {html.escape(', '.join(others))})</span>")
+            self._title.setText(f"Elgin City v {html.escape(club)} <span style='font-size:11pt; color:{MUTED}'>(with {html.escape(', '.join(others))})</span>")
         r = h.overall
         self._number_labels["played"].setText(str(r.played))
         self._number_labels["won"].setText(str(r.won))
@@ -333,7 +348,7 @@ class HeadToHeadTab(QWidget):
         if not self._h2h:
             return
         club = self._current_club() or "opponent"
-        default = Path.home() / f"Elgin City v {club}.csv"
+        default = Path.home() / f"Elgin City v {safe_filename(club)}.csv"
         path, _ = QFileDialog.getSaveFileName(self, "Save the games as a spreadsheet", str(default), "CSV (*.csv)")
         if path:
             save_csv(Path(path), self._h2h.matches)

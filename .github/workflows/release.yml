@@ -6,6 +6,11 @@ on:
       - "v*"
   workflow_dispatch:  # build the installers without publishing a release
 
+# Actions are pinned to exact commits (with the version beside them), so a
+# moved tag can't change what runs. Dependabot keeps them up to date.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -14,9 +19,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.13"
 
@@ -57,7 +62,7 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "packaging\windows\installer.iss"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: simple-elginfc-${{ runner.os }}
           path: |
@@ -73,12 +78,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artifacts
 
+      # The app checks each download against these before installing it.
+      - name: List the installers' SHA-256 checksums
+        run: |
+          find artifacts -type f \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' \) -exec sha256sum {} + \
+            | sed 's|  .*/|  |' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*
+            SHA256SUMS.txt
           generate_release_notes: true
