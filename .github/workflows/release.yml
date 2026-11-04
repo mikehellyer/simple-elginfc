@@ -58,7 +58,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
+          # a tag's version; a manual dry run (no tag) uses the app's own
+          if ("${{ github.ref_type }}" -eq "tag") { $version = "${{ github.ref_name }}" -replace '^v', '' }
+          else { $version = (Select-String -Path src/simple_elginfc/__init__.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value }
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "packaging\windows\installer.iss"
 
       - name: Upload artifact
