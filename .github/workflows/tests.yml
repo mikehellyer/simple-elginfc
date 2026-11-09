@@ -14,7 +14,8 @@ jobs:
     strategy:
       fail-fast: false  # (one OS failing shouldn't hide how the others did)
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pinned to match the release build (see release.yml).
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen  # some tests build the app's screens; there's no display here
